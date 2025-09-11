@@ -1,4 +1,4 @@
-# Aristotle
+# Taken From Aristotle
 
 Codes and Data for ACL 2025 Paper [**"Aristotle: Mastering Logical Reasoning with A Logic-Complete Decompose-Search-Resolve Framework"**](<https://arxiv.org/abs/2412.16953>)
 
