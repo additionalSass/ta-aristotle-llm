@@ -23,9 +23,9 @@ class GPT3_Reasoning_Graph_Baseline:
         self.file_lock = threading.Lock()
         self.batch_num = args.batch_num
         if args.base_url:
-            self.openai_api = OpenAIModel(args.api_key, args.model_name, args.stop_words, args.max_new_tokens, base_url=args.base_url)
+            self.openai_api = OpenAIModel(args.api_key, args.model_name, args.stop_words, args.max_new_tokens, args.reasoning_effort, base_url=args.base_url)
         else:
-            self.openai_api = OpenAIModel(args.api_key, args.model_name, args.stop_words, args.max_new_tokens)
+            self.openai_api = OpenAIModel(args.api_key, args.model_name, args.stop_words, args.max_new_tokens, args.reasoning_effort)
     
     def load_in_context_examples_complement(self):
         file_path = os.path.join('./prompts', self.dataset_name, 'complement_search.txt')
@@ -41,11 +41,20 @@ class GPT3_Reasoning_Graph_Baseline:
     
     
     def load_raw_dataset(self, split):
-        if self.negation == 'True':
-            file_path = f"./results/{self.dataset_name}/{self.dataset_name}_{self.model_name}_trans_decompose_negated_data.json"
+        if "llama" in self.model_name:
+            model_name = 'llama'
+        elif "Qwen3-14B" in self.model_name:
+            model_name = 'qwen3-14b'
+        elif ":free" in self.model_name:
+            model_name = self.model_name.replace(":free", "_free")
         else:
-            file_path = f"./results/{self.dataset_name}/{self.dataset_name}_{self.model_name}_trans_decompose_no_negation.json"
+            model_name = self.model_name
+        if self.negation == 'True':
+            file_path = f"./results/{self.dataset_name}/{self.dataset_name}_{model_name}_trans_decompose_negated_data.json"
+        else:
+            file_path = f"./results/{self.dataset_name}/{self.dataset_name}_{model_name}_trans_decompose_no_negation.json"
         print(f"Loading raw dataset from {file_path}")
+        
         with open(file_path) as f:
             raw_dataset = json.load(f)
         return raw_dataset
@@ -538,8 +547,12 @@ class GPT3_Reasoning_Graph_Baseline:
         def save_output(output, is_error=False):
             if "llama" in self.model_name:
                 model_name = 'llama'
+            elif "Qwen3-14B" in self.model_name:
+                model_name = 'qwen3-14b'
+            elif ":free" in self.model_name:
+                model_name = self.model_name.replace(":free", "_free")
             else:
-                model_name = self.model_name
+                model_name = self.model_name 
             file_name = f'{self.dataset_name}_{model_name}_search_negation_{self.negation}.json'
             file_path = os.path.join(self.save_path, self.dataset_name, file_name)
             print("Saving result with thread lock in path: ", file_path)
@@ -598,6 +611,7 @@ def parse_args():
     parser.add_argument('--max_new_tokens', type=int)
     parser.add_argument('--base_url', type=str)
     parser.add_argument('--batch_num', type=int, default=1)
+    parser.add_argument('--reasoning_effort', type=str, default='none')
     parser.add_argument('--search_round', type=int, default=10)
     args = parser.parse_args()
     return args

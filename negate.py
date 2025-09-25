@@ -18,7 +18,13 @@ def negate_conjecture(conjecture):
     return updated_conjecture
 
 def main(args):
-    input_path = f'./results/{args.dataset_name}/{args.dataset_name}_{args.model}_trans_decompose_no_negation.json'
+    print(args.model)
+    if 'Qwen3-14B' in args.model :
+        model = 'qwen3-14b'
+        input_path = f'./results/{args.dataset_name}/{args.dataset_name}_qwen3-14b_trans_decompose_no_negation.json'
+    else:
+        model = args.model
+        input_path = f'./results/{args.dataset_name}/{args.dataset_name}_{model}_trans_decompose_no_negation.json'
     with open(input_path, 'r') as f:
         data = json.load(f)
     
@@ -26,7 +32,7 @@ def main(args):
         item['sos_list'] = negate_conjecture(item['sos_list'])
         item['negated_label'] = "True"
     
-    save_path = f'./results/{args.dataset_name}/{args.dataset_name}_{args.model}_trans_decompose_negated_data.json'
+    save_path = f'./results/{args.dataset_name}/{args.dataset_name}_{model}_trans_decompose_negated_data.json'
     with open(save_path, 'w') as f:
         json.dump(data, f, indent=4)
 

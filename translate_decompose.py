@@ -1,13 +1,15 @@
-import json
 import os
+import re
+import json
+import threading
+import argparse
+import traceback
+import shutil
+import tempfile
+import ast
+import concurrent.futures
 from tqdm import tqdm
 from utils import OpenAIModel
-import argparse
-import re
-import sys
-import concurrent.futures
-import traceback
-import threading
 
 class GPT3_Reasoning_Graph_Baseline:
     def __init__(self, args):
@@ -21,56 +23,68 @@ class GPT3_Reasoning_Graph_Baseline:
         self.batch_num = args.batch_num
         self.file_lock = threading.Lock()
         if args.base_url:
-            self.openai_api = OpenAIModel(args.api_key, args.model_name, args.stop_words, args.max_new_tokens, base_url=args.base_url)
+            self.openai_api = OpenAIModel(
+                args.api_key,
+                args.model_name,
+                args.stop_words,
+                args.max_new_tokens,
+                args.reasoning_effort,
+                base_url=args.base_url
+            )
         else:
-            self.openai_api = OpenAIModel(args.api_key, args.model_name, args.stop_words, args.max_new_tokens)
-            
+            self.openai_api = OpenAIModel(
+                args.api_key,
+                args.model_name,
+                args.stop_words,
+                args.max_new_tokens,
+                args.reasoning_effort
+            )
+
     def load_in_context_examples_trans(self):
         file_path = os.path.join('./prompts', self.dataset_name, 'translation.txt')
         print("Loading translation file: ", file_path)
-        with open(file_path) as f:
+        with open(file_path, encoding='utf-8') as f:
             in_context_examples = f.read()
-            
         return in_context_examples
-    
+
     def load_in_context_and_or_decomposer(self):
         file_path = os.path.join('./prompts', self.dataset_name, 'and_or_decomposer.txt')
         print("Loading decomposer file: ", file_path)
-        with open(file_path) as f:
+        with open(file_path, encoding='utf-8') as f:
             in_context_examples = f.read()
         return in_context_examples
-    
+
     def load_in_context_either_or_decomposer(self):
         file_path = os.path.join('./prompts', self.dataset_name, 'either_or_decomposer.txt')
         print("Loading decomposer file: ", file_path)
-        with open(file_path) as f:
+        with open(file_path, encoding='utf-8') as f:
             in_context_examples = f.read()
         return in_context_examples
-    
+
     def load_in_context_biconditional_decomposer(self):
         file_path = os.path.join('./prompts', self.dataset_name, 'logical_biconditional_decomposer.txt')
         print("Loading decomposer file: ", file_path)
-        with open(file_path) as f:
+        with open(file_path, encoding='utf-8') as f:
             in_context_examples = f.read()
         return in_context_examples
-    
+
     def load_in_context_examples_search_init(self):
         file_path = os.path.join('./prompts', self.dataset_name, 'search_init.txt')
-        with open(file_path) as f:
+        with open(file_path, encoding='utf-8') as f:
             in_context_examples = f.read()
         return in_context_examples
-    
+
     def load_in_context_examples_search_router(self):
         file_path = os.path.join('./prompts', self.dataset_name, 'search_router.txt')
-        with open(file_path) as f:
+        with open(file_path, encoding='utf-8') as f:
             in_context_examples = f.read()
         return in_context_examples
-    
+
     def load_raw_dataset(self, split):
-        with open(os.path.join(self.data_path, self.dataset_name, f'{split}.json')) as f:
+        with open(os.path.join(self.data_path, self.dataset_name, f'{split}.json'), encoding='utf-8') as f:
             raw_dataset = json.load(f)
         return raw_dataset
-        
+
     def index_context(self, context):
         sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', context)
         formatted_context = enumerate(sentences, start=1)
@@ -100,7 +114,7 @@ class GPT3_Reasoning_Graph_Baseline:
         full_prompt = in_context_examples_search_init
         full_prompt = full_prompt.replace('[[CONTEXT]]', responses_b)
         return full_prompt
-    
+
     def construct_prompt_d(self, responses_b, negated_label, reasoning_step, sos_list, in_context_examples_search_router):
         full_prompt = in_context_examples_search_router
         full_prompt = full_prompt.replace('[[CONTEXT]]', responses_b)
@@ -108,16 +122,15 @@ class GPT3_Reasoning_Graph_Baseline:
         full_prompt = full_prompt.replace('[[REASONING]]', reasoning_step)
         full_prompt = full_prompt.replace('[[SOS]]', sos_list)
         return full_prompt
-        
+
     def post_process_b(self, response_b):
-        parts = response_b.split("Final Form:") 
+        parts = response_b.split("Final Form:")
         if len(parts) > 1:
             context_text = parts[-1].strip()
         else:
             context_text = "Context not found."
-        
         return context_text
-    
+
     def negate_conjecture(self, conjecture):
         if re.search(r'True', conjecture):
             updated_conjecture = re.sub(r'True', 'False', conjecture)
@@ -126,9 +139,7 @@ class GPT3_Reasoning_Graph_Baseline:
         else:
             updated_conjecture = conjecture
             print("No True/False found in the conjecture.")
-
         return updated_conjecture
-        
 
     def post_process_c(self, response_c):
         sos_list = re.findall(r'\[(.*?)\]', response_c)
@@ -136,26 +147,25 @@ class GPT3_Reasoning_Graph_Baseline:
         str_sos_list = "".join(sos_list)
         str_negated_label = "".join(negated_label)
         return str_negated_label.lower(), str_sos_list.lower()
-    
+
     def post_process_d(self, response_d):
         search_result_match = re.findall(r'\{(.*?)\}', response_d)
         search_result = search_result_match[0].strip() if search_result_match else None
-        
+
         new_clause_match = re.search(r"New Clause:\s*```(.*?)```", response_d, re.DOTALL)
         new_clause = new_clause_match.group(1).strip() if new_clause_match else None
-        
+
         sufficiency_check_match = re.search(r"Sufficiency check for final answer:\s*(.*)", response_d)
         sufficiency_check = sufficiency_check_match.group(1).strip() if sufficiency_check_match else None
-        
+
         sufficiency_label_match = re.search(r"Sufficiency Label:\s*\[(.*?)\]", response_d)
         sufficiency_label = sufficiency_label_match.group(1).strip() if sufficiency_label_match else None
-        
+
         final_answer = "***Final Answer: N/A***"
         if sufficiency_label and sufficiency_label.lower() == "true":
             final_answer_match = re.search(r'\*\*\*(.*?)\*\*\*', response_d)
             final_answer = final_answer_match.group(1).strip() if final_answer_match else "No final answer found"
-    
-        
+
         return {
             "Search Result": search_result,
             "New Clause": new_clause,
@@ -163,10 +173,10 @@ class GPT3_Reasoning_Graph_Baseline:
             "Sufficiency Label": sufficiency_label,
             "Final Answer": final_answer
         }
-        
+
     def process_normalized_context(self, normalized_context):
         lines = normalized_context.split('\n')
-        
+
         for i, line in enumerate(lines):
             or_positions = [m.start() for m in re.finditer(r'\∨|\\lor', line)]
             for pos in or_positions:
@@ -177,12 +187,12 @@ class GPT3_Reasoning_Graph_Baseline:
                         new_left_part = left_part[:match.start()] + 'False' + left_part[match.end():]
                         lines[i] = new_left_part + line[pos:]
         return '\n'.join(lines)
-    
+
     def post_process_final_answer(self, response_c):
         pattern_bracket = r"Final answer: \{([A-E])\}"
         match = re.search(pattern_bracket, response_c)
         if match:
-            answers =  match.group(1)
+            answers = match.group(1)
             return answers
         pattern_direct = r'\{(\w+)\}'
         match = re.search(pattern_direct, response_c, re.IGNORECASE)
@@ -190,7 +200,6 @@ class GPT3_Reasoning_Graph_Baseline:
             return match.group(1).lower()
         return "No final answer found in the text."
 
-    
     def final_process(self, final_answer):
         final_answer = final_answer.lower()
         if final_answer == "true":
@@ -200,13 +209,13 @@ class GPT3_Reasoning_Graph_Baseline:
         elif final_answer == "unknown":
             final_answer = 'C'
         else:
-            final_answer = "No final answer found in the text."  
+            final_answer = "No final answer found in the text."
         return final_answer
-    
+
     def list_to_indexed_string(self, item_list):
         indexed_list = [f"{i + 1}. {item}" for i, item in enumerate(item_list)]
         return "\n".join(indexed_list)
-    
+
     def extract_facts_and_rules(self, content):
         fact_pattern = r'Facts(.*?)Rules'
         fact_match = re.search(fact_pattern, content, re.DOTALL)
@@ -220,45 +229,45 @@ class GPT3_Reasoning_Graph_Baseline:
 
     def extract_query(self, content):
         query_matches = list(re.finditer(r'Conjecture', content))
-        
+
         if not query_matches:
             return None
-        
+
         last_query_pos = query_matches[-1].start()
-        
+
         last_query_content = content[last_query_pos:]
-        
+
         patterns = [
             r'Conjecture\s*```(?:plaintext)?\n?(.+?)\n?```',
             r'Conjecture\s*(.+?)(?:\n|$)',
             r'Conjecture.*?\n(.*?)(?:\n|$)',
             r'Conjecture.*?\n.*?\n(.*?)(?:\n|$)'
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, last_query_content, re.DOTALL)
             if match:
                 query = match.group(1).strip()
                 if '(' in query and ')' in query:
                     return query
-        
+
         return None
-    
+
     def clean_irrelevant_lines(self, content):
         lines = content.split("\n")
         cleaned_lines = [line.strip() for line in lines if "(" in line]
         return "\n".join(cleaned_lines)
-    
+
     def remove_duplicates(self, context_lines):
         seen = set()
         unique_items = []
-        
+
         for item in context_lines:
             if item not in seen:
                 unique_items.append(item)
-                seen.add(item) 
+                seen.add(item)
         return unique_items
-    
+
     def split_cnf_clause(self, context):
         print("Splitting context: ", context)
         normalized_context_lines = context.split('\n')
@@ -270,7 +279,7 @@ class GPT3_Reasoning_Graph_Baseline:
         renumbered_normalized_context = [f"{index + 1}. {line}" for index, line in enumerate(cleaned_normalized_context)]
 
         return renumbered_normalized_context
-    
+
     def categorize_rule_lines(self, rule):
         either_or = []
         biconditional = []
@@ -278,15 +287,14 @@ class GPT3_Reasoning_Graph_Baseline:
 
         for item in rule.split('\n'):
             if "(" in item:
-                if '\u2295' in item:
+                if '\u2295' in item:  # ⊕
                     either_or.append(item)
-                elif '\u21d4' in item:
+                elif '\u21d4' in item:  # ⇔
                     biconditional.append(item)
                 else:
                     others.append(item)
 
         return either_or, biconditional, others
-    
 
     def extract_facts_rules_conjecture(self, content):
         fact = ""
@@ -307,21 +315,17 @@ class GPT3_Reasoning_Graph_Baseline:
 
         return fact, rule, conjecture
 
-    
     def post_process_decompose(self, content):
         final_form_match = re.finditer(r'Final Form', content)
         final_form_positions = [m.start() for m in final_form_match]
 
         if final_form_positions:
             first_final_form_pos = final_form_positions[0]
-            
             try:
                 context = content[first_final_form_pos:].split("Final Form:")[-1].strip()
-
                 context_lines = context.split("\n")
                 filtered_context_lines = [line for line in context_lines if "(" in line]
                 context = "\n".join(filtered_context_lines)
-                
             except IndexError as e:
                 problematic_content = content[first_final_form_pos:]
                 print("Problematic content: ", problematic_content)
@@ -332,7 +336,7 @@ class GPT3_Reasoning_Graph_Baseline:
             context = "\n".join(filtered_context_lines)
 
         return context
-    
+
     def clean_conjecture(self, conjecture):
         if isinstance(conjecture, dict):
             conjecture = "\n".join([f"{key}: {value}" for key, value in conjecture.items()])
@@ -344,46 +348,81 @@ class GPT3_Reasoning_Graph_Baseline:
                 if not any(remove_item in item for remove_item in remove_list):
                     splited_item = item.split(":::")[0]
                     cleaned_conjecture.append(splited_item)
-                
         return '\n'.join(cleaned_conjecture)
-        
-        
+
     def save_output(self, outputs, file_suffix=None):
+        """
+        Hardened save function:
+        - backs up corrupted JSON
+        - tries to recover python repr via ast.literal_eval
+        - writes atomically using a temp file + os.replace
+        """
         if "llama" in self.model_name:
             model_name = 'llama'
+        elif "Qwen3-14B" in self.model_name:
+            model_name = 'qwen3-14b'
         elif ":free" in self.model_name:
             model_name = self.model_name.replace(":free", "_free")
         else:
             model_name = self.model_name
         file_name = f'{self.dataset_name}_{model_name}_trans_decompose_no_negation.json'
         file_path = os.path.join(self.save_path, self.dataset_name, file_name)
-        
+
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        
+
         print("Saving result with thread lock in path: ", file_path)
         with self.file_lock:
             try:
+                existing_data = []
                 if os.path.exists(file_path):
-                    with open(file_path, 'r') as f:
+                    with open(file_path, 'r', encoding='utf-8') as f:
                         file_content = f.read()
                         if file_content.strip():
-                            existing_data = json.loads(file_content)
-                        else:
-                            print(f"File {file_path} is empty. Initializing with an empty list.")
-                            existing_data = []
+                            try:
+                                existing_data = json.loads(file_content)
+                            except json.JSONDecodeError:
+                                # backup corrupted file and attempt recovery
+                                corrupt_backup = file_path + '.corrupt'
+                                shutil.copy(file_path, corrupt_backup)
+                                print(f"Warning: JSON decode error when reading {file_path}. Backed up corrupted file to {corrupt_backup}.")
+
+                                # Try to recover if the file contained Python repr (last resort)
+                                try:
+                                    recovered = ast.literal_eval(file_content)
+                                    if isinstance(recovered, list):
+                                        existing_data = recovered
+                                    else:
+                                        existing_data = [recovered]
+                                    print("Recovered file content via ast.literal_eval; continuing.")
+                                except Exception:
+                                    print("Could not recover corrupted file content; reinitializing output list.")
+                                    existing_data = []
                 else:
                     existing_data = []
-                
+
+                # append new outputs (ensure outputs is serializable)
                 if isinstance(outputs, list):
                     existing_data.extend(outputs)
                 else:
                     existing_data.append(outputs)
-                
-                with open(file_path, 'w') as f:
-                    json.dump(existing_data, f, indent=2, ensure_ascii=False)
+
+                # atomic write: write to temp file then replace
+                dirpath = os.path.dirname(file_path) or '.'
+                tmp_fd, tmp_path = tempfile.mkstemp(dir=dirpath)
+                try:
+                    with os.fdopen(tmp_fd, 'w', encoding='utf-8') as tmpf:
+                        json.dump(existing_data, tmpf, indent=2, ensure_ascii=False)
+                    os.replace(tmp_path, file_path)
+                finally:
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except Exception:
+                            pass
+
             except Exception as e:
-                print(f"Error in saving output: {e}")    
-        
+                print(f"Error in saving output: {e}")
+
     def process_example(self, example, in_context_examples_trans, icl_and_or_decomposer, icl_either_or_decomposer, icl_biconditional_decomposer):
         if self.dataset_name == 'LogicNLI':
             question = example['conjecture']
@@ -392,16 +431,19 @@ class GPT3_Reasoning_Graph_Baseline:
         print("Translating...")
         prompts_a = self.construct_prompt_a(example, in_context_examples_trans)
         responses_a = self.openai_api.generate(prompts_a)
-        responses_a = responses_a[0]
+        # responses_a is expected to be a tuple (generated_text, finish_reason) for chat_generate
+        # or the text directly for other variants. We defensively unwrap.
+        if isinstance(responses_a, (list, tuple)) and len(responses_a) > 0:
+            responses_a = responses_a[0]
         print("Translation response: ", responses_a)
-        
+
         translated_facts, translated_rules, translated_conjecture = self.extract_facts_rules_conjecture(responses_a)
         print("Translated Facts1: ", translated_facts)
-        translated_facts = self.clean_irrelevant_lines(translated_facts)
+        translated_facts = self.clean_irrelevant_lines(translated_facts or "")
         print(f"Translated Facts2: {translated_facts}")
 
-        either_or, biconditional, and_or = self.categorize_rule_lines(translated_rules)
-        
+        either_or, biconditional, and_or = self.categorize_rule_lines(translated_rules or "")
+
         print(f"AND/OR: {and_or} \n EITHER/OR: {either_or} \n BICONDITIONAL: {biconditional}")
 
         responses_and_or = None
@@ -411,25 +453,39 @@ class GPT3_Reasoning_Graph_Baseline:
         print("Decomposing rules...")
         if and_or:
             responses_and_or_process = self.openai_api.generate(self.construct_prompt_b(and_or, icl_and_or_decomposer))
-            responses_and_or = self.post_process_decompose(responses_and_or_process[0])
+            if isinstance(responses_and_or_process, (list, tuple)) and len(responses_and_or_process) > 0:
+                responses_and_or_process = responses_and_or_process[0]
+            responses_and_or = self.post_process_decompose(responses_and_or_process or "")
             responses_and_or = self.clean_irrelevant_lines(responses_and_or)
+        else:
+            responses_and_or_process = None
+
         if either_or:
             responses_either_or_process = self.openai_api.generate(self.construct_prompt_b(either_or, icl_either_or_decomposer))
-            responses_either_or = self.post_process_decompose(responses_either_or_process[0])
+            if isinstance(responses_either_or_process, (list, tuple)) and len(responses_either_or_process) > 0:
+                responses_either_or_process = responses_either_or_process[0]
+            responses_either_or = self.post_process_decompose(responses_either_or_process or "")
             responses_either_or = self.clean_irrelevant_lines(responses_either_or)
+        else:
+            responses_either_or_process = None
+
         if biconditional:
             responses_biconditional_process = self.openai_api.generate(self.construct_prompt_b(biconditional, icl_biconditional_decomposer))
-            responses_biconditional = self.post_process_decompose(responses_biconditional_process[0])
+            if isinstance(responses_biconditional_process, (list, tuple)) and len(responses_biconditional_process) > 0:
+                responses_biconditional_process = responses_biconditional_process[0]
+            responses_biconditional = self.post_process_decompose(responses_biconditional_process or "")
             responses_biconditional = self.clean_irrelevant_lines(responses_biconditional)
-        
+        else:
+            responses_biconditional_process = None
+
         responses_b = '\n'.join(filter(None, [responses_and_or, responses_either_or, responses_biconditional]))
         print("Decomposing response: ", responses_b)
-        
+
         normalized_context = responses_b
-        normalized_conjecture = self.clean_conjecture(translated_conjecture)
+        normalized_conjecture = self.clean_conjecture(translated_conjecture or "")
         print('Normalized context: ', normalized_context)
         print('Normalized conjecture: ', normalized_conjecture)
-        
+
         negated_label = 'false'
         sos_list = normalized_conjecture
 
@@ -441,34 +497,49 @@ class GPT3_Reasoning_Graph_Baseline:
 
         if isinstance(normalized_context, list):
             normalized_context = "\n".join(self.split_cnf_clause(normalized_context))
-            
+
         if self.dataset_name == 'LogicNLI':
             original_context = "Facts: " + '\n'.join(example['facts']) + "Rules: " + '\n'.join(example['rules'])
         else:
             original_context = example['context']
 
         output = {
-            'id': example['id'], 
+            'id': example['id'],
             'original_context': original_context,
-            'question': question, 
-            'translated_context': {"Translated_Facts": translated_facts, "Translated_Rules": translated_rules, "Translated_Conjecture": translated_conjecture},
-            'decomposed_process': {key: value for key, value in {"and_or": locals().get("responses_and_or_process"), "either_or": locals().get("responses_either_or_process"), "biconditional": locals().get("responses_biconditional_process")}.items() if value is not None},
-            'normalized_context': {"Fact": translated_facts, "and_or": responses_and_or, "either_or": responses_either_or, "biconditional": responses_biconditional},
+            'question': question,
+            'translated_context': {
+                "Translated_Facts": translated_facts,
+                "Translated_Rules": translated_rules,
+                "Translated_Conjecture": translated_conjecture
+            },
+            'decomposed_process': {
+                key: value for key, value in {
+                    "and_or": locals().get("responses_and_or_process"),
+                    "either_or": locals().get("responses_either_or_process"),
+                    "biconditional": locals().get("responses_biconditional_process")
+                }.items() if value is not None
+            },
+            'normalized_context': {
+                "Fact": translated_facts,
+                "and_or": responses_and_or,
+                "either_or": responses_either_or,
+                "biconditional": responses_biconditional
+            },
             'normalized_conjecture': normalized_conjecture,
             'negated_label': negated_label,
             'sos_list': sos_list,
-            'ground_truth': example['answer']
+            'ground_truth': example.get('answer', example.get('label'))
         }
 
-        print(output)
-        return output, None
-        
+        # Return a single serializable dict (no trailing None)
+        return output
+
     def reasoning_graph_generation(self):
         raw_dataset = self.load_raw_dataset(self.split)
         print(f"Loaded {len(raw_dataset)} examples from {self.split} split.")
 
         in_context_examples_trans = self.load_in_context_examples_trans()
-        
+
         if self.dataset_name == "ProntoQA":
             icl_and_or_decomposer = self.load_in_context_and_or_decomposer()
             icl_either_or_decomposer = None
@@ -482,7 +553,14 @@ class GPT3_Reasoning_Graph_Baseline:
         counter = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.batch_num) as executor:
             futures = {
-                executor.submit(self.process_example, example, in_context_examples_trans, icl_and_or_decomposer, icl_either_or_decomposer, icl_biconditional_decomposer): example 
+                executor.submit(
+                    self.process_example,
+                    example,
+                    in_context_examples_trans,
+                    icl_and_or_decomposer,
+                    icl_either_or_decomposer,
+                    icl_biconditional_decomposer
+                ): example
                 for example in raw_dataset
             }
 
@@ -490,32 +568,42 @@ class GPT3_Reasoning_Graph_Baseline:
                 example = futures[future]
                 try:
                     output = future.result()
-                    if 'error' in output:
-                        print(f"Error in generating example: {example['id']}")
-                    else:
-                        print(f"Saving output for example: {output}")
-                        self.save_output(output[0])
+                    # defensive handling: ensure we have a dict to save
+                    if output is None:
+                        print(f"No output for example {example['id']}")
+                        continue
+
+                    if isinstance(output, tuple):
+                        # unwrap legacy tuple if any
+                        output = output[0]
+
+                    if not isinstance(output, dict):
+                        print(f"Unexpected output type for {example['id']}: {type(output)} -- skipping save")
+                        continue
+
+                    print(f"Saving output for example: {output.get('id')}")
+                    self.save_output(output)
+
                 except Exception as exc:
                     print(f'{example["id"]} generated an exception: {exc}')
                     traceback.print_exc()
                 counter += 1
-            
-    
+
     def update_answer(self, sample, translation, decomposed_process, translated_fact, normalized_context, normalized_conjecture, negated_label, sos_list):
         if isinstance(normalized_context, list):
             normalized_context = "\n".join(normalized_context)
-        
-        output = {'id': sample['id'], 
-                'original_context': sample['context'] if self.dataset_name != "LogicNLI" else "\n".join(sample['facts'] + sample['rules']),
-                'question': sample['question'] if self.dataset_name != "LogicNLI" else sample['conjecture'], 
-                'translated_context': translation,
-                'decomposed_process': decomposed_process,
-                'normalized_context': "Facts: " + translated_fact + "\nRules: " + normalized_context,
-                'normalized_conjecture': normalized_conjecture,
-                'negated_label': negated_label,
-                'sos_list': sos_list,
-                'ground_truth': sample['answer'] if self.dataset_name != "LogicNLI" else sample['label']}
-        
+
+        output = {'id': sample['id'],
+                  'original_context': sample['context'] if self.dataset_name != "LogicNLI" else "\n".join(sample['facts'] + sample['rules']),
+                  'question': sample['question'] if self.dataset_name != "LogicNLI" else sample['conjecture'],
+                  'translated_context': translation,
+                  'decomposed_process': decomposed_process,
+                  'normalized_context': "Facts: " + translated_fact + "\nRules: " + normalized_context,
+                  'normalized_conjecture': normalized_conjecture,
+                  'negated_label': negated_label,
+                  'sos_list': sos_list,
+                  'ground_truth': sample['answer'] if self.dataset_name != "LogicNLI" else sample['label']}
+
         return output
 
 
@@ -533,8 +621,10 @@ def parse_args():
     parser.add_argument('--max_new_tokens', type=int)
     parser.add_argument('--base_url', type=str)
     parser.add_argument('--batch_num', type=int, default=1)
+    parser.add_argument('--reasoning_effort', type=str, default='none')
     args = parser.parse_args()
     return args
+
 
 if __name__ == '__main__':
     args = parse_args()
