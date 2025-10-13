@@ -8,6 +8,8 @@ import sys
 import concurrent.futures
 import threading
 import traceback
+import tempfile
+from filelock import FileLock
 
 class GPT3_Reasoning_Graph_Baseline:
     def __init__(self, args):
@@ -543,7 +545,27 @@ class GPT3_Reasoning_Graph_Baseline:
                 print(e)
                 error = {'id': example['id']}
                 return error
-
+                
+        def _atomic_write_json(path, data):
+            d = os.path.dirname(path)
+            os.makedirs(d, exist_ok=True)
+            with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=d, delete=False) as tmp:
+                json.dump(data, tmp, indent=2, ensure_ascii=False)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+                tmp_name = tmp.name
+            os.replace(tmp_name, path)  
+            
+        def _safe_load_json_array(path):
+            if not os.path.exists(path) or os.path.getsize(path) == 0:
+                return []
+            with open(path, 'r', encoding='utf-8') as f:
+                try:
+                    return json.load(f)
+                except json.JSONDecodeError:
+                    print(f"[WARN] {path} is corrupted JSON. Starting a new array.")
+                    return []
+            
         def save_output(output, is_error=False):
             if "llama" in self.model_name:
                 model_name = 'llama'
@@ -553,29 +575,19 @@ class GPT3_Reasoning_Graph_Baseline:
                 model_name = self.model_name.replace(":free", "_free")
             else:
                 model_name = self.model_name 
+            
             file_name = f'{self.dataset_name}_{model_name}_search_negation_{self.negation}.json'
             file_path = os.path.join(self.save_path, self.dataset_name, file_name)
-            print("Saving result with thread lock in path: ", file_path)
-            
-            with self.file_lock:
-                try:
-                    if os.path.exists(file_path):
-                        with open(file_path, 'r') as f:
-                            file_content = f.read()
-                            if file_content.strip():
-                                existing_data = json.loads(file_content)
-                            else:
-                                print(f"File {file_path} is empty. Initializing with an empty list.")
-                                existing_data = []
-                    else:
-                        existing_data = []
-                    
-                    existing_data.append(output)
-                    
-                    with open(file_path, 'w') as f:
-                        json.dump(existing_data, f, indent=2, ensure_ascii=False)
-                except Exception as e:
-                    print(f"Error in saving {'error' if is_error else ''} output: {e}")
+            print("Saving result (atomic) in path: ", file_path)
+            lock = FileLock(file_path + ".lock")
+            with lock:
+                with self.file_lock:
+                    try:
+                        existing_data = _safe_load_json_array(file_path)
+                        existing_data.append(output)
+                        _atomic_write_json(file_path, existing_data)
+                    except Exception as e:
+                        print(f"Error in saving {'error' if is_error else ''} output: {e}")
 
         counter = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.batch_num) as executor:
