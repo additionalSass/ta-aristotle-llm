@@ -26,16 +26,16 @@ def evaluate_instance(id_, instance1, instance2, ground_truth):
         
     answer1 = normalize_answer(answer1)
     answer2 = normalize_answer(answer2)
-                
+    # true       
     if ground_truth == 'A':
         if {answer1, answer2} in [{'A', 'C'}, {'A'}]:
             return True
-    
+    #false
     elif ground_truth == 'B':
         if {answer1, answer2} in [{'B', 'C'}, {'B'}]:
             return True
     
-    elif ground_truth == 'C':
+    elif ground_truth == 'C': 
         if answer1 == 'C' and (answer2 == 'C' or answer2 is None):
             return True
         

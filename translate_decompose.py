@@ -361,6 +361,8 @@ class GPT3_Reasoning_Graph_Baseline:
             model_name = 'llama'
         elif "Qwen3-14B" in self.model_name:
             model_name = 'qwen3-14b'
+        elif "Qwen3-32B" in self.model_name:
+            model_name = 'qwen3-32b'
         elif ":free" in self.model_name:
             model_name = self.model_name.replace(":free", "_free")
         else:
@@ -443,6 +445,7 @@ class GPT3_Reasoning_Graph_Baseline:
         print(f"Translated Facts2: {translated_facts}")
 
         either_or, biconditional, and_or = self.categorize_rule_lines(translated_rules or "")
+
 
         print(f"AND/OR: {and_or} \n EITHER/OR: {either_or} \n BICONDITIONAL: {biconditional}")
 

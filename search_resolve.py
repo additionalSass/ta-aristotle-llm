@@ -47,6 +47,8 @@ class GPT3_Reasoning_Graph_Baseline:
             model_name = 'llama'
         elif "Qwen3-14B" in self.model_name:
             model_name = 'qwen3-14b'
+        elif "Qwen3-32B" in self.model_name:
+            model_name = 'qwen3-32b'
         elif ":free" in self.model_name:
             model_name = self.model_name.replace(":free", "_free")
         else:
@@ -571,6 +573,8 @@ class GPT3_Reasoning_Graph_Baseline:
                 model_name = 'llama'
             elif "Qwen3-14B" in self.model_name:
                 model_name = 'qwen3-14b'
+            elif "Qwen3-32B" in self.model_name:
+                model_name = 'qwen3-32b'
             elif ":free" in self.model_name:
                 model_name = self.model_name.replace(":free", "_free")
             else:
