@@ -22,10 +22,18 @@ async def dispatch_openai_chat_requests(
     top_p: float,
     stop_words: list[str],
     reasoning_effort: Any = None
-) -> list:
-    """Dispatches requests to OpenAI ChatCompletion API asynchronously.
-
-    Passes reasoning_effort through to each acreate call.
+) -> list[str]:
+    """Dispatches requests to OpenAI API asynchronously.
+    
+    Args:
+        messages_list: List of messages to be sent to OpenAI ChatCompletion API.
+        model: OpenAI model to use.
+        temperature: Temperature to use for the model.
+        max_tokens: Maximum number of tokens to generate.
+        top_p: Top p to use for the model.
+        stop_words: List of words to stop the model from generating.
+    Returns:
+        List of responses from OpenAI API.
     """
     async_responses = [
         openai.ChatCompletion.acreate(
@@ -34,7 +42,7 @@ async def dispatch_openai_chat_requests(
             temperature=temperature,
             max_tokens=max_tokens,
             top_p=top_p,
-            stop=stop_words,
+            stop = stop_words,
             reasoning_effort=reasoning_effort
         )
         for x in messages_list
@@ -49,11 +57,7 @@ async def dispatch_openai_prompt_requests(
     top_p: float,
     stop_words: list[str],
     reasoning_effort: Any = None
-) -> list:
-    """Dispatches requests to OpenAI Completion API asynchronously.
-
-    Passes reasoning_effort through to each acreate call.
-    """
+) -> list[str]:
     async_responses = [
         openai.Completion.acreate(
             model=model,
@@ -61,9 +65,9 @@ async def dispatch_openai_prompt_requests(
             temperature=temperature,
             max_tokens=max_tokens,
             top_p=top_p,
-            frequency_penalty=0.0,
-            presence_penalty=0.0,
-            stop=stop_words,
+            frequency_penalty = 0.0,
+            presence_penalty = 0.0,
+            stop = stop_words,
             reasoning_effort=reasoning_effort
         )
         for x in messages_list
@@ -79,6 +83,7 @@ class OpenAIModel:
         self.reasoning_effort = reasoning_effort
         if base_url:
             openai.api_base = base_url
+        
 
     @retry(stop_max_attempt_number=3, wait_fixed=2000)
     def chat_generate(self, input_string, temperature = 0.0):
@@ -95,8 +100,9 @@ class OpenAIModel:
         )
         generated_text = response['choices'][0]['message']['content'].strip()
         finish_reason = response['choices'][0]['finish_reason']
-        return generated_text, finish_reason
-
+        usage = response.get("usage", None) 
+        return generated_text, finish_reason, usage
+    
     @retry(stop_max_attempt_number=3, wait_fixed=2000)
     def prompt_generate(self, input_string, temperature = 0.0):
         response = completions_with_backoff(
@@ -111,11 +117,12 @@ class OpenAIModel:
             reasoning_effort = self.reasoning_effort
         )
         generated_text = response['choices'][0]['text'].strip()
-        return generated_text
+        usage = response.get("usage", None)
+        return generated_text, usage
 
     @retry(stop_max_attempt_number=3, wait_fixed=2000)
     def generate(self, input_string, temperature = 0.0):
-        if self.model_name in ['gpt-4', 'gpt-4o', 'gpt-3.5-turbo-0613', 'gpt-4o-2024-08-06', 'gpt-4o-2024-05-13', 'gpt-3.5-turbo', 'gpt-3.5-turbo-16k-0613', 'gpt-3.5-turbo-1106', 'gpt-4o-mini', 'gpt-4-0125-preview', 'gpt-4-1106-preview', 'gpt-4-turbo', 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo', 'deepseek/deepseek-r1-0528-qwen3-8b:free', 'deepseek/deepseek-r1-distill-llama-70b:free', 'qwen/qwen3-14b:free', 'Qwen/Qwen3-14B', 'Qwen/Qwen3-32B','qwen/qwen3-32b']:
+        if self.model_name in ['gpt-4', 'gpt-4o', 'gpt-3.5-turbo-0613', 'gpt-4o-2024-08-06', 'gpt-4o-2024-05-13', 'gpt-3.5-turbo', 'gpt-3.5-turbo-16k-0613', 'gpt-3.5-turbo-1106', 'gpt-4o-mini', 'gpt-4-0125-preview', 'gpt-4-1106-preview', 'gpt-4-turbo', 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo', 'Qwen/Qwen3-14B', 'qwen/qwen3-14b', 'Qwen/Qwen3-32B','qwen/qwen3-32b','deepseek-ai/DeepSeek-R1-0528']:
             try:
                 return self.chat_generate(input_string, temperature)
             except openai.error.OpenAIAPIError as e:
@@ -123,7 +130,7 @@ class OpenAIModel:
                 raise
         else:
             raise Exception("Model name not recognized")
-
+    
     def batch_chat_generate(self, messages_list, temperature = 0.0):
         open_ai_messages_list = []
         system_prompt = "You are a helpful assistant, one of the greatest AI scientists, logicians and mathematicians. Make sure you carefully and fully understand the details of user's requirements before you start solving the problem."
@@ -133,34 +140,22 @@ class OpenAIModel:
             )
         predictions = asyncio.run(
             dispatch_openai_chat_requests(
-                    open_ai_messages_list,
-                    self.model_name,
-                    temperature,
-                    self.max_new_tokens,
-                    1.0,
-                    self.stop_words,
-                    reasoning_effort = self.reasoning_effort
+                    open_ai_messages_list, self.model_name, temperature, self.max_new_tokens, 1.0, self.stop_words
             )
         )
         finish_reason = [x['choices'][0]['finish_reason'].strip() for x in predictions]
         return [x['choices'][0]['message']['content'].strip() for x in predictions]
-
+    
     def batch_prompt_generate(self, prompt_list, temperature = 0.0):
         predictions = asyncio.run(
             dispatch_openai_prompt_requests(
-                    prompt_list,
-                    self.model_name,
-                    temperature,
-                    self.max_new_tokens,
-                    1.0,
-                    self.stop_words,
-                    reasoning_effort = self.reasoning_effort
+                    prompt_list, self.model_name, temperature, self.max_new_tokens, 1.0, self.stop_words
             )
         )
         return [x['choices'][0]['text'].strip() for x in predictions]
 
     def batch_generate(self, messages_list, temperature = 0.0):
-        if self.model_name in ['gpt-4', 'gpt-4o', 'gpt-3.5-turbo-0613', 'gpt-4o', 'gpt-3.5-turbo', 'gpt-3.5-turbo-16k-0613', 'gpt-3.5-turbo-1106', 'gpt-4o-mini', 'gpt-4-0125-preview', 'gpt-4-1106-preview', 'gpt-4-turbo', 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo', 'deepseek/deepseek-r1-0528-qwen3-8b:free', 'deepseek/deepseek-r1-distill-llama-70b:free', 'qwen/qwen3-14b:free', 'Qwen/Qwen3-14B', 'Qwen/Qwen3-32B','qwen/qwen3-32b']:
+        if self.model_name in ['gpt-4', 'gpt-4o', 'gpt-3.5-turbo-0613', 'gpt-4o', 'gpt-3.5-turbo', 'gpt-3.5-turbo-16k-0613', 'gpt-3.5-turbo-1106', 'gpt-4o-mini', 'gpt-4-0125-preview', 'gpt-4-1106-preview', 'gpt-4-turbo', 'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo', 'Qwen/Qwen3-14B', 'qwen/qwen3-14b', 'Qwen/Qwen3-32B','qwen/qwen3-32b','deepseek-ai/DeepSeek-R1-0528']:
             return self.batch_chat_generate(messages_list, temperature)
         else:
             raise Exception("Model name not recognized")
@@ -177,5 +172,6 @@ class OpenAIModel:
             presence_penalty = 0.0,
             reasoning_effort = self.reasoning_effort
         )
-        generated_text = response['choices'][0]['text'].strip()
-        return generated_text
+        generated_text = response['choices'][0]['text'].strip
+        usage = response.get("usage", None)
+        return generated_text, usage

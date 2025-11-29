@@ -25,7 +25,7 @@ def main(args):
     else:
         model = args.model
         input_path = f'./results/{args.dataset_name}/{args.dataset_name}_{model}_trans_decompose_no_negation.json'
-    with open(input_path, 'r') as f:
+    with open(input_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
     for item in data:

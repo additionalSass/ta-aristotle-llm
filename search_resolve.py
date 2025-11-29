@@ -51,6 +51,8 @@ class GPT3_Reasoning_Graph_Baseline:
             model_name = 'qwen3-32b'
         elif ":free" in self.model_name:
             model_name = self.model_name.replace(":free", "_free")
+        elif "deepseek" in self.model_name:
+            model_name = 'deepseek'
         else:
             model_name = self.model_name
         if self.negation == 'True':
@@ -59,9 +61,12 @@ class GPT3_Reasoning_Graph_Baseline:
             file_path = f"./results/{self.dataset_name}/{self.dataset_name}_{model_name}_trans_decompose_no_negation.json"
         print(f"Loading raw dataset from {file_path}")
         
-        with open(file_path) as f:
+        with open(file_path, encoding='utf-8') as f:
             raw_dataset = json.load(f)
         return raw_dataset
+        
+    def remove_think_blocks(self, text):
+        return re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
     
     def index_context(self, context):
         sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', context)
@@ -291,8 +296,7 @@ class GPT3_Reasoning_Graph_Baseline:
             while neg in context:
                 neg_pos = context.find(neg)
                 rest = context[neg_pos + len(neg):]
-
-                bool_match = re.search(r"(False|True)", rest)
+                bool_match = re.search(r"(false|true)", rest, flags=re.IGNORECASE)
                 if bool_match:
                     bool_pos = bool_match.start()
                     bool_val = bool_match.group()
@@ -314,6 +318,20 @@ class GPT3_Reasoning_Graph_Baseline:
         counter = 0
     
         def process_example(example, counter):
+
+            token_usage = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            }
+
+            def add_usage(u):
+                if not u:
+                    return
+                token_usage["prompt_tokens"] += u.get("prompt_tokens", 0)
+                token_usage["completion_tokens"] += u.get("completion_tokens", 0)
+                token_usage["total_tokens"] += u.get("total_tokens", 0)
+                
             try:
                 print(f"Running example: {example['id']}")
 
@@ -335,8 +353,11 @@ class GPT3_Reasoning_Graph_Baseline:
                 
                 normalized_conjecture = self.clean_conjecture(example['normalized_conjecture'])
                 negated_label = example['negated_label']
-                sos_list = self.clean_conjecture(example['sos_list'])
-                if '(' and ')' not in sos_list:
+                raw_sos = example.get('sos_list', "")
+                sos_list = self.clean_conjecture(raw_sos)
+                if not isinstance(sos_list, str):
+                    sos_list = ""
+                if str(example.get('negated_label', '')).lower() == 'true':
                     sos_list = normalized_conjecture
                     sos_list = self.remove_negations(sos_list)
                     if example['negated_label'] == 'True':
@@ -459,8 +480,10 @@ class GPT3_Reasoning_Graph_Baseline:
                         print("Search round: ", search_round)
                         
                     prompts_e = self.construct_prompt_e(negated_label, normalized_conjecture, sos_list, selected_clause, in_context_examples_logic_resolver)
-                    responses_e, _ = self.openai_api.generate(prompts_e)
-                    
+                    responses_e, _ , usage_e = self.openai_api.generate(prompts_e)
+                    add_usage(usage_e)
+                    # Get rid the text of any <think> ... </think> block from the raw model output
+                    responses_e = self.remove_think_blocks(responses_e)
                     logic_solver_result = self.post_process_logic_solver(responses_e)
                     new_clause = logic_solver_result['new_clause']
                     sufficiency_label = logic_solver_result['sufficiency_label']
@@ -497,14 +520,12 @@ class GPT3_Reasoning_Graph_Baseline:
                         selected_clause = None
                     
                     if sufficiency_label == "True":
-                        if new_clause.lower() == "contradiction" or "false":
+                        if new_clause.lower() == "contradiction" or new_clause.lower() == "false":
                             if negated_label.lower() == "true":
                                 final_answer = "True"
                             elif negated_label.lower() == "false":
                                 final_answer = "False"
-                        
                             flag = 'false'
-                        
                         else: 
                             all_empty = "True"
                             for i, clause in enumerate(list_of_compelment):
@@ -537,8 +558,10 @@ class GPT3_Reasoning_Graph_Baseline:
                         'ground_truth': example['ground_truth'], 
                         'final_answer': final_answer,
                         'final_choice': final_choice,
-                        'search_round': search_round}
-                
+                        'search_round': search_round,
+                        'token_usage': token_usage,
+                        }
+                print("Token usage for the example", example['id'], ":", token_usage)
                 print(output)
                 return output
         
@@ -577,6 +600,8 @@ class GPT3_Reasoning_Graph_Baseline:
                 model_name = 'qwen3-32b'
             elif ":free" in self.model_name:
                 model_name = self.model_name.replace(":free", "_free")
+            elif "deepseek" in self.model_name:
+                model_name = 'deepseek'
             else:
                 model_name = self.model_name 
             
