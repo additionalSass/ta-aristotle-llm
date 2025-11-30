@@ -429,12 +429,17 @@ class GPT3_Reasoning_Graph_Baseline:
                                             selected_clause = complement_clauses.pop(0)
                                             found_new_pair = True
                                             break
+                                        
                                     if not found_new_pair:
                                         print("No more sos and complement pairs found in cache.")
                                         final_answer = "cannot find sos with complement"
                                         break
-
-                        
+                                else:
+                                    print("No sos and complement pairs found in cache.")
+                                    final_answer = "cannot find sos with complement"
+                                    flag = 'false'
+                                    break
+                                    
                         if not complement_indices:
                             if len(list_of_compelment) > 0:
                                 all_empty = True
