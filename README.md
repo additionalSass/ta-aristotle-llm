@@ -1,6 +1,6 @@
-# Logical Reasoning Benchmark with Qwen and DeepSeek
+# Validation of the Decompose-Search-Resolve Framework for Logical Reasoning on Open-Weight Large Language Models (with Qwen and DeepSeek)
 
-A capstone reproduction and extension of the **Aristotle Decompose–Search–Resolve framework**, comparing direct prompting, few-shot prompting, and structured logical reasoning for open-weight Large Language Models on ProntoQA and ProofWriter.
+A capstone reproduction and validating extension of the **Aristotle Decompose–Search–Resolve framework**, comparing direct prompting, few-shot prompting, and structured logical reasoning for open-weight Large Language Models on ProntoQA and ProofWriter.
 
 > **Project type:** University capstone evaluation project
 > **Primary skills:** Python, LLM APIs, prompt evaluation, concurrent processing, experimental design, JSON data pipelines
