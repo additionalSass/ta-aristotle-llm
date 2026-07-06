@@ -3,8 +3,10 @@
 A capstone reproduction and validating extension of the **Aristotle Decompose–Search–Resolve framework**, comparing direct prompting, few-shot prompting, and structured logical reasoning for open-weight Large Language Models on ProntoQA and ProofWriter.
 
 > **Project type:** University capstone evaluation project
+> 
 > **Primary skills:** Python, LLM APIs, prompt evaluation, concurrent processing, experimental design, JSON data pipelines
-> **Status:** Experiments completed; results and error analysis should be added before portfolio release
+> 
+> **Status:** Experiments completed .
 
 ## Overview
 
